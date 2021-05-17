@@ -45,9 +45,9 @@ int initAreasCount()
 }
 
 /// Number of steps on area.
-int getStepCount(double x1, double x2, double step)
+unsigned long long getStepCount(double x1, double x2, double step)
 {
-    return (int)((x2 - x1) / step);
+    return (unsigned long long)((x2 - x1) / step);
 }
 
 /// Step for area with left border equal to x.
@@ -95,7 +95,7 @@ void setPrecision()
     borderCoef = 5;
 
     double targetPrecision = pow(10, -desiredPrecision);
-    std::cout << "Target precision = " << targetPrecision << '\n';
+//    std::cout << "Target precision = " << targetPrecision << '\n';
 
     while (true)
     {
@@ -111,13 +111,13 @@ void setPrecision()
             {
                 alpha *= 10;
                 borderCoef = 1 + (borderCoef - 1) / 2;
-                std::cout << "Current precision (not enough) = " << error << '\n';
+//                std::cout << "Current precision (not enough) = " << error << '\n';
                 break;
             }
         }
         if (error < targetPrecision)
         {
-            std::cout << "Current precision (enough) = " << error << '\n';
+            std::cout << "Precision: " << error << '\n';
             break;
         }
     }
@@ -153,9 +153,16 @@ double updateX(double x, int *currentAreaNumber, int maxAreaNumber, Area *areas)
     {
         *currentAreaNumber += 1;
         if (*currentAreaNumber < maxAreaNumber)
+        {
             nextX = areas[*currentAreaNumber].borderDown + areas[*currentAreaNumber].step;
+            if (nextX == 0)
+                std::cout << areas[*currentAreaNumber].borderDown << ' ' << areas[*currentAreaNumber].step << '\n';
+        }
         else
+        {
+//            std::cout << "ALERT:  " << nextX << '\n';
             nextX = areas[*currentAreaNumber-1].borderUp;
+        }
     }
     return nextX;
 }
@@ -173,6 +180,10 @@ void* thread_function(void* arg)
     /// Calculate integral with trapezoidal rule, until right x became righter from right border (or equal).
     while (nextX < data->xUp)
     {
+//        if (x == 0 || nextX == 0)
+//        {
+//            std::cout << "here2\n";
+//        }
         retval->sum += trapezoidValue(x, nextX, areas[currentAreaNumber].step);
         x = nextX;
         nextX = updateX(x, &currentAreaNumber, data->numAreas, areas);
@@ -185,10 +196,10 @@ void* thread_function(void* arg)
 
 int main()
 {
-    std::cout.precision(17);
+    std::cout.precision(15);
     setPrecision();
 
-    int stepsNumber = 0;
+    unsigned long long stepsNumber = 0;
     double sum = 0;
     double sumError = 0;
 
@@ -202,56 +213,68 @@ int main()
         areas[area].step = getStep(areas[area].borderDown);
         sumError += calculateMaxErrorOnArea(areas[area].borderDown, areas[area].borderUp, areas[area].step);
         stepsNumber += getStepCount(areas[area].borderDown, areas[area].borderUp, areas[area].step);
+//        std::cout << areas[area].borderDown << ' ' << areas[area].borderUp << '\n';
     }
 
-    int stepsPerThread = ceil(stepsNumber / NUM_THREADS);
+    unsigned long long stepsPerThread = ceil(stepsNumber / NUM_THREADS);
     int rc;
     pthread_t thread[NUM_THREADS] = {};
     ThreadDataIn threadData[NUM_THREADS] = {};
 
-    int areaDown = 0;
-    double xmin = xDown;
-    int stepsLeft = 0;
+    unsigned long long stepsLeft = 0;
+    double x = xDown;
+    int currentArea = 0;
+//    double currentstep = areas[currentArea].step;
     for (int i = 0; i < NUM_THREADS; ++i)
     {
-        threadData[i].areaDown = areaDown;
-        threadData[i].xDown = xmin;
+        threadData[i].areaDown = currentArea;
+        threadData[i].xDown = x;
         threadData[i].areas = nullptr;
-        int steps = (i == NUM_THREADS-1) ? (stepsNumber - (NUM_THREADS-1)*stepsPerThread) : stepsPerThread;
+        unsigned long long steps = (i == NUM_THREADS-1) ? (stepsNumber - (NUM_THREADS-1)*stepsPerThread) : stepsPerThread;
+
+//        unsigned long long stepsArea = getStepCount(areas[currentArea].borderDown, areas[currentArea].borderUp, areas[currentArea].step) - stepsLeft;
         while (steps > 0)
         {
-            int stepsArea = getStepCount(areas[areaDown].borderDown, areas[areaDown].borderUp, areas[areaDown].step);
+            unsigned long long stepsArea = getStepCount(areas[currentArea].borderDown, areas[currentArea].borderUp, areas[currentArea].step);
             stepsArea -= stepsLeft;
             if (steps >= stepsArea)
             {
                 steps -= stepsArea;
-                areaDown += 1;
-                xmin = areas[areaDown].borderDown;
+                currentArea = std::min(currentArea+1, areasCount-1);
+                x = (currentArea == areasCount-1) ? areas[currentArea].borderUp : areas[currentArea].borderDown;
                 stepsLeft = 0;
             }
             else
             {
-                threadData[i].xUp = areas[areaDown].borderDown + steps * areas[areaDown].step;
-                xmin = threadData[i].xUp;
+                threadData[i].xUp = areas[currentArea].borderDown + steps * areas[currentArea].step;
+                x = threadData[i].xUp;
                 stepsLeft += steps;
                 break;
             }
         }
 
+//        if (stepsLeft != 0)
+//            threadData[i].xUp = x + stepsLeft * currentstep;
         threadData[3].xUp = xUp;
 
         int tareaDown = threadData[i].areaDown;
-        int numAreas = areaDown - tareaDown + 1;
-        if (areaDown >= areasCount)
+        int numAreas = currentArea - tareaDown + 1;
+        if (currentArea >= areasCount)
         {
             numAreas -= 1;
-            areaDown -= 1;
+            currentArea -= 1;
         }
 
         threadData[i].numAreas = numAreas;
         threadData[i].areas = new Area[numAreas];
-        for (int k = tareaDown; k <= areaDown; k++)
+        for (int k = tareaDown; k <= currentArea; k++)
             threadData[i].areas[k - tareaDown] = areas[k];
+
+//        std::cout << "thread" << i << ' ' << threadData[i].numAreas << ' ' << x << '\n';
+//        for (int k = 0; k < threadData[i].numAreas; k++)
+//        {
+//            std::cout << threadData[i].areas[k].borderDown << ' ' << threadData[i].areas[k].borderUp << '\n';
+//        }
 
         if ((rc = pthread_create(&thread[i], nullptr, thread_function, (void *)&threadData[i])))
         {
